@@ -14,4 +14,4 @@ COPY . .
 EXPOSE 4567
 
 # Rodar o servidor Sinatra
-CMD ["bundle", "exec", "puma", "-p", "4567", "-b", "tcp://0.0.0.0", "config.ru"]
+CMD ["bundle", "exec", "rerun", "--background", "--dir", "app", "--", "puma", "-p", "4567", "-b", "tcp://0.0.0.0", "config.ru"]

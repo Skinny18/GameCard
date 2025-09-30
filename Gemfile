@@ -10,3 +10,4 @@ gem "sinatra-namespace" # se quiser usar namespaces na API
 gem "rake"      # para tarefas de banco de dados
 gem 'faye-websocket'
 gem 'eventmachine'
+gem "rerun"

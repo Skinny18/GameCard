@@ -12,10 +12,10 @@ class RoomsController < Sinatra::Base
     username = params[:username] || "Player#{rand(1000)}"
     user = User.find_by(username: username)
     halt 404, { error: "Usuário não encontrado" }.to_json unless user
-    # Cria a sala se não existir
-    GameManager.create_room(room_id) unless GameManager.rooms[room_id]
 
-    # Retorna os dados necessários para o cliente abrir o WebSocket
+    GameManager.create_room(room_id) unless GameManager.rooms[room_id]
+    GameManager.add_player(room_id, "ws://#{request.host}:#{request.port}/game/#{room_id}?username=#{username}", username)
+
     {
       message: "Sala pronta para entrar",
       room_id: room_id,
@@ -36,42 +36,33 @@ class RoomsController < Sinatra::Base
       halt 404, { error: "Sala não encontrada" }.to_json
     end
 
+    GameManager.add_player(room_id, "ws://#{request.host}:#{request.port}/game/#{room_id}?username=#{username}", username)
+
     {
-      message: "Pronto para entrar na sala",
+      message: "#{username} entrou na sala #{room_id}",
       room_id: room_id,
       username: username,
       websocket_url: "ws://#{request.host}:#{request.port}/game/#{room_id}?username=#{username}"
     }.to_json
-
-    GameManager.add_player(room_id, "ws://#{request.host}:#{request.port}/game/#{room_id}?username=#{username}", username) # ws será adicionado no WebSocket
-
-    {
-      message: "#{username} entrou na sala #{room_id}"
-    }.to_json
-    
   end
-
 
   get '/cards' do 
     content_type :json
-
-    cards = GameManager.shuffled_deck.map { |card| { card: card } }
+    cards = GameManager.shuffled_deck.map do |card|
+      { uuid: card.uuid, name: card.class.name, value: card.value }
+    end
     cards.to_json
   end
 
   post '/:room_id/start' do
     content_type :json
-
     room_id = params[:room_id]
 
-    unless GameManager.rooms[room_id]
-      halt 404, { error: "Sala não encontrada" }.to_json
-    end
+    halt 404, { error: "Sala não encontrada" }.to_json unless GameManager.rooms[room_id]
 
     GameManager.start_game(room_id)
 
     { message: "Jogo iniciado na sala #{room_id}" }.to_json
-
   end
 
   # Comprar uma carta do deck
@@ -90,34 +81,34 @@ class RoomsController < Sinatra::Base
     card = GameManager.draw_card(room_id, username)
     halt 400, { error: "Deck vazio" }.to_json unless card
 
-    { message: "#{username} comprou uma carta", carta_comprada: { name: card.class.name, value: card.value }, hand: player[:hand].map { |c| { name: c.class.name, value: c.value }}}.to_json
+    {
+      message: "#{username} comprou uma carta",
+      carta_comprada: { uuid: card.uuid, name: card.class.name, value: card.value },
+      hand: player[:hand].map { |c| { uuid: c.uuid, name: c.class.name, value: c.value } }
+    }.to_json
   end
 
   # Jogar uma carta da mão
-  # Recebe o índice da carta que o jogador quer jogar
+  # Agora recebe o UUID da carta
   post '/:room_id/play/:username' do
     content_type :json
     room_id = params[:room_id]
     username = params[:username]
-    played_index = params[:card_index].to_i
-  
+    played_uuid = params[:card_uuid] # ⚡ trocado de index → uuid
+    puts played_uuid
     room = GameManager.rooms[room_id]
     halt 404, { error: "Sala não encontrada" }.to_json unless room
-  
+    
     player = room[:players].find { |p| p[:username] == username }
     halt 404, { error: "Jogador não encontrado na sala" }.to_json unless player
-  
-    if player[:hand].empty? || played_index >= player[:hand].size
-      halt 400, { error: "Carta inválida" }.to_json
-    end
-  
-    # Remove a carta da mão e adiciona ao discard
-    played_card = GameManager.play_card(room_id, username, played_index)
+    
+    played_card = GameManager.play_card(room_id, username, played_uuid)
+    halt 400, { error: "Carta inválida" }.to_json unless played_card
   
     # Determina se a carta precisa de alvo
     needs_target = [Guarda, Padre, Barao, Principe, Rei].include?(played_card.class)
   
-    if needs_target 
+    if needs_target && !params[:target_username]
       halt 400, { error: "Alvo não fornecido" }.to_json 
     end
     
@@ -127,26 +118,21 @@ class RoomsController < Sinatra::Base
       halt 404, { error: "Alvo não encontrado" }.to_json unless target
     end
   
-    # Chama o efeito da carta
+    # Executa o efeito
     effect_result = if target
-
-              target_player = room[:players].find { |p| p[:username] == target_username }
-              played_card.play(player, room, target: target, options: { guess: params[:guess] })
-            else
-              played_card.play(player, room)
-            end
+      played_card.play(player, room, target: target, options: { guess: params[:guess] })
+    else
+      played_card.play(player, room)
+    end
 
     {
       message: "#{username} jogou a carta #{played_card.class.name}",
       efeito: effect_result,
-      remaining_hand: player[:hand].map { |c| c.class.name }
+      remaining_hand: player[:hand].map { |c| { uuid: c.uuid, name: c.class.name, value: c.value } }
     }.to_json
   end
-  
-    
-  
-  
 
+  # Retorna as cartas da mão de um jogador
   get '/:username/:room_id/cards' do
     content_type :json
     username = params[:username]
@@ -160,12 +146,12 @@ class RoomsController < Sinatra::Base
     player = room[:players].find { |p| p[:username] == username }
     halt 404, { error: "Jogador não encontrado na sala" }.to_json unless player
 
-    { hand: player[:hand].map { |card| card.name } }.to_json
+    {
+      hand: player[:hand].map { |c| { uuid: c.uuid, name: c.class.name, value: c.value } }
+    }.to_json
   end
 
-
-
-   get '/rooms' do
+  get '/rooms' do
     rooms = GameManager.rooms.map do |room_id, room_data|
       {
         room_id: room_id,

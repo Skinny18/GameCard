@@ -1,3 +1,4 @@
+require 'securerandom'
 require_relative 'cards/cards'
 
 class GameManager
@@ -18,7 +19,6 @@ class GameManager
       p[:ws].send(message.to_json)
     end
   end
-
 
   def self.start_game(room_id)
     return unless @@rooms[room_id]
@@ -44,41 +44,47 @@ class GameManager
     card
   end
 
-  def self.play_card(room_id, username, played_card_index)
+  def self.play_card(room_id, username, played_card_id)
     room = @@rooms[room_id]
     return unless room
+
 
     player = room[:players].find { |p| p[:username] == username }
     return unless player
+    puts player[:hand].map { |c| { uuid: c.uuid, name: c.class.name, value: c.value } }
 
-    played_card = player[:hand].delete_at(played_card_index)
+    # Agora procuramos a carta pelo UUID, não pelo index
+    played_card = player[:hand].find { |c| c.uuid == played_card_id }
+    return unless played_card
+
+    player[:hand].delete(played_card)
     room[:discard] << played_card
 
-    # A outra carta na mão do jogador fica com ele
-    # Aqui você chamaria o método do efeito da carta, ex: played_card.play(...)
     played_card
   end
 
-  def self.eliminate_player(room_id, player)
-    room = @@rooms[room_id]
+  def self.eliminate_player(room, player)
     return unless room
-  
+
     room[:players].delete(player)
     room[:discard] ||= []
     room[:discard] << player[:hand].pop if player[:hand].any?
   end
-  
+
 
   def self.shuffled_deck
     classes = [Guarda, Padre, Barao, Aia, Principe, Rei, Condessa, Princesa, Chanceler, Espia]
   
     deck = classes.flat_map do |klass|
-      Array.new(klass::QTD) { klass.new }
+      Array.new(klass::QTD) do
+        card = klass.new
+        card.define_singleton_method(:uuid) { @uuid ||= SecureRandom.uuid }
+        card
+      end
     end
   
     deck.shuffle
   end
-  
 
   def self.rooms
     @@rooms

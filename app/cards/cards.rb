@@ -1,5 +1,6 @@
 # guarda.rb
 require_relative 'base_card'
+require_relative '../game_manager'
 
 class Guarda < Card
   VALUE = 1
@@ -11,7 +12,8 @@ class Guarda < Card
 
     guess = options[:guess]
     if target[:hand].first.class.name == guess
-      game.eliminate_player(target)
+      GameManager.eliminate_player(game, target)
+      puts "#{player[:username]} acertou! #{target[:username]} foi eliminado."
     end
   end
 end
@@ -37,9 +39,9 @@ class Barao < Card
     p1_val = player[:hand].first.value
     p2_val = target[:hand].first.value
     if p1_val > p2_val
-      game.eliminate_player(target)
+      GameManager.eliminate_player(game, target)
     elsif p1_val < p2_val
-      game.eliminate_player(player)
+      GameManager.eliminate_player(game, player)
     end
   end
 end
@@ -61,7 +63,7 @@ class Principe < Card
 
   def play(player, game, target:, options: {})
     target[:hand].clear
-    game.draw_card_for_player(target)
+    game.draw_card_for_player(game, target)
   end
 end
 
@@ -92,7 +94,7 @@ class Princesa < Card
   QTD = 2
 
   def play(player, game, target: nil, options: {})
-    game.eliminate_player(player)
+    GameManager.eliminate_player(game, player)
   end
 end
 
